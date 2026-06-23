@@ -20,6 +20,8 @@
     </filter>
   </defs>
 
+  <rect x="0" y="0" width="720" height="440" fill="#fff"/>
+
   <g filter="url(#rough)">
     <!-- axle / steering direction -->
     <line x1="120" y1="250" x2="560" y2="250" stroke="#bbb" stroke-width="1.5" stroke-dasharray="2 6"/>

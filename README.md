@@ -1,9 +1,7 @@
 # cwsteer — contrastive weight steering
 
-A small library for steering a language model along a contrastive axis by editing
-its weights. It fits one conditioned adapter on (chosen, rejected) completion
-pairs, calibrates the steering strength so generations stay coherent, then bakes
-the chosen strength into the weights for inference.
+A small, working, library for steering a language model along a contrastive axis by editing
+its weights. It's a modification of[Fierro & Roger, 2025 - Weight steering](https://arxiv.org/abs/2511.05408). It fits one conditioned adapter on (chosen, rejected) completion pairs, calibrates the steering strength so generations stay coherent, then bakes the chosen strength into the weights for inference.
 
 ## Weight steering
 
@@ -14,7 +12,7 @@ optimisation like reinforcement learning is subject to. Newer forms of steering
 are more powerful and reliable, and open the door for iterated application, while
 being less internal.
 
-The base method is contrastive weight steering
+The base method is the excellent contrastive weight steering
 ([Fierro & Roger, 2025](https://arxiv.org/abs/2511.05408),
 [code](https://github.com/safety-research/weight-steering)). It trains an adapter
 on a model's own contrastive completions, then uses that adapter as a direction in
@@ -61,7 +59,7 @@ A few changes to the base method:
   the plain LoRA adapter instead)
 - a KL constraint to the base model that keeps generations coherent under steering
 - a calibration pass that finds the largest coherent steering strength before
-  replaying the completions
+  replaying the completions (optional, mainly for repeated applications)
 - a logit filter during generation that keeps the persona used to elicit the
   contrast from leaking into the completions
 - a generation filter that drops pairs showing leakage, refusal, repetition, or

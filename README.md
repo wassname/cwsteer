@@ -77,8 +77,10 @@ The single signed adapter, KL constraint, calibration, and pair filtering follow
 earlier [AntiPaSTO work](https://arxiv.org/pdf/2601.07473); PiSSA is a separate
 existing method.
 
-The adapter, training, and bake core are smoke-tested; the calibration, generation,
-and filtering modules are in the repo and being wired into the smoke.
+The adapter, training, bake core, calibration (`c_scan`), on-policy pole generation,
+and the persona-leakage logit filter are all in this repo and covered by `just smoke`.
+A standalone post-hoc pair filter (capability beyond the generation-time prevention
+above) is the remaining piece.
 
 Weight steering is less purely "internal" than activation steering, because it
 adds an external objective: nll over the model's own completions. I haven't yet

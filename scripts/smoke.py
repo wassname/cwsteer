@@ -20,6 +20,8 @@ from cwsteer import (
     ModulatedPiSSA,
     TrainCfg,
     baked,
+    c_scan,
+    generate_pairs_from_personas,
     train_adapter,
 )
 
@@ -114,7 +116,30 @@ def main():
     assert d_pp > rt_err and d_pn2 > 0, "PiSSA ±c must move more than round-trip noise and differ"
     logger.info(f"B PiSSA OK: c0 round-trip err={rt_err:.5f} (<5% of {base_scale:.3f}), |+1-base|={d_pp:.4f}, |+1 - -1|={d_pn2:.4f}")
 
-    logger.success("cwsteer smoke PASSED — adapter (LoRA + PiSSA), train, bake/restore all green")
+    # ── E. pole generation + logit filter: on-policy cho/rej, persona stripped ─
+    # Random model -> gibberish completions; we only check the gen + persona-leak
+    # logit-filter + degenerate-drop path runs and returns well-formed rows.
+    pairs_out = generate_pairs_from_personas(
+        model, tok,
+        ["Should I ship the fix now?", "Is the result significant?"],
+        pos_persona="You are terse and decisive. Answer in one short sentence.",
+        neg_persona="You are long-winded and never commit to an answer.",
+        max_new_tokens=24, batch_size=2,
+    )
+    assert isinstance(pairs_out, list), "generate_pairs_from_personas must return a list"
+    for r in pairs_out:
+        assert set(r) >= {"prompt", "cho", "rej"} and r["cho"] != r["rej"], f"bad pair row {r!r}"
+    logger.info(f"E pole-gen OK: kept {len(pairs_out)} on-policy pairs (logit filter + degenerate-drop ran)")
+
+    # ── F. c_scan calibration: walk c down until the 3 coherence gates hold ────
+    # n_vignettes=0 -> no tinymfv (pmass forced 1.0); tiny token budgets keep it fast.
+    c_cal, _scan_log = c_scan(model, tok, trained, init_c=1.0, n_vignettes=0,
+                              max_think_tokens=8, probe_max_new_tokens=16, batch_size=1)
+    assert 0.0 < c_cal <= 1.0, f"c_scan returned out-of-range c={c_cal}"
+    logger.info(f"F c_scan OK: calibrated c={c_cal:.3f} (n_vignettes=0, tinymfv-free)")
+
+    logger.success("cwsteer smoke PASSED — adapter (LoRA + PiSSA), train, bake/restore, "
+                   "pole-gen + logit-filter, c_scan calibration all green")
 
 
 if __name__ == "__main__":

@@ -8,9 +8,17 @@ its weights. It's a modification of [Fierro & Roger, 2025 - Weight steering](htt
 Steering is promising but seen as unreliable. It is promising because it is
 self-supervised, meaning it doesn't rely on labels that we don't have. And it is
 internal, meaning it is less prone to the reward hacking that more distal
-optimisation like reinforcement learning is subject to. Newer forms of steering
-are more powerful and reliable, and open the door for iterated application, while
-being less internal.
+optimisation like reinforcement learning is subject to. Weight steering is a newer
+form: more reliable than activation steering and able to compose across rounds, at
+the cost of being a little less purely internal. That extra reliability is the main
+reason to reach for it.
+
+Early results ([LW](https://www.lesswrong.com/posts/HYTbakdHpxfaCowYp/steering-language-models-with-weight-arithmetic?commentId=GomjgJDtr5JhEAuC3),
+0.6B-4B) are consistent with this: the steered effect is monotonic and coherent over a
+wide range, with the lowest uncertainty and highest answer-coherence of the methods
+compared, and it beats prompting and several activation-steering baselines on surgical
+informedness. Raw effect size is currently mid-pack and under-calibrated; a fuller eval
+is in progress.
 
 The base method is the excellent contrastive weight steering
 ([Fierro & Roger, 2025](https://arxiv.org/abs/2511.05408),

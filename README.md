@@ -22,25 +22,30 @@ weight space.
 
 ## The adapter
 
-One parameterized adapter with a scalar coefficient `c`, per target Linear (the
-base weight `W` is frozen):
+The plain LoRA form, per target Linear (the base weight `W` is frozen):
 
 $$y = x W^\top + c \cdot \frac{\alpha}{r}\,(x A^\top) B^\top$$
 
-`c = 0` reconstructs the base model. `+c` and `-c` are the two signed poles of one
-low-rank direction. The persona used to elicit the contrast is carried by the
-completions only, and is stripped before training, so it is not part of the
-deployed adapter.
+`c = 0` gives exactly the base model; `+c` and `-c` are the two signed poles of one
+low-rank direction. The PiSSA variant differs: at init it replaces `W` with the
+residual `W - U_r S_r V_r^\top` and adds the top-`r` SVD back in the forward pass with
+its singular values scaled by `c`, so `c = 0` still reconstructs the base (modulo the
+SVD round-trip) and `±c` grow or shrink those directions. See
+[`adapter.py`](src/cwsteer/adapter.py).
 
-The two poles share one axis. During training one pole's pairs are reversed, so
-instead of fighting they reinforce the same direction; at inference the signed
-dial `c` slides the model along that one line.
+The persona used to elicit the contrast is carried by the completions only, and is
+stripped before training, so it is not part of the deployed adapter.
+
+The two poles share one axis. The same pairs are trained under both signs of `c`
+(favouring `cho` at `+c`, `rej` at `-c`); that sign flip is the "reversal", so the two
+updates reinforce one direction instead of fighting. At inference the dial `c` slides
+the model along that line. See [`train.py`](src/cwsteer/train.py).
 
 ![steering direction](docs/steering_direction.svg)
 
-*One adapter is one direction. The `+c` (cho over rej) pole and the `-c` (rej over
-cho) pole would pull against each other, so one pole's pairs are flipped and both
-end up pulling the same way. The vector geometry behind the flip is in the
+*One adapter is one direction: the `+c` (cho over rej) and `-c` (rej over cho) poles
+would pull against each other, but training the same pairs under both signs makes them
+pull the same way. The gradient geometry behind this is an advanced aside in the
 [appendix](#appendix-gradient-geometry).*
 
 ## What this variant changes
@@ -79,6 +84,11 @@ hidden states.
 
 ## Quickstart
 
+First decide and validate your contrastive personas and prompts. If the pairs don't
+cleanly separate the behaviour you want, training, calibration, and baking all inherit
+that failure, so this step gates everything downstream. Curate them with the
+[persona-steering template library](https://github.com/wassname/persona-steering-template-library).
+
 ```python
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -107,16 +117,17 @@ and `baked()` shifts the output then restores the base weights byte-for-byte.
 
 ## Appendix: gradient geometry
 
-Why does flipping one pole's pairs make the two poles reinforce rather than cancel?
-Picture each pole's training gradient as a rope pulling the shared direction (the
-axle through the base model at `0`). The two pulls open at an angle. Their shared
-along-the-axle component `v` is the common pull that moves the direction; the
-perpendicular parts are equal and opposite, so they cancel. The `-c` sign flip
-makes both pulls the same gradient at first order, so they reinforce. As the
-adapter grows toward `c = 1` the angle between them widens (the `cos` column in the
-training trace falls from about 0.48 toward 0).
+Advanced; skip unless you care about the training dynamics.
 
-![gradient geometry](docs/steering_geometry.svg)
+Why does training the same pairs under both signs of `c` make the two poles reinforce
+rather than cancel? Picture each pole's gradient as a rope pulling the shared direction
+(the axle through the base model at `0`). The two pulls open at an angle. In this
+idealised picture their shared along-the-axle component adds up and moves the direction,
+while the perpendicular parts are roughly equal and opposite and cancel. The `-c` sign
+flip is what points both gradients the same way along the axle. In our runs the cosine
+between the two poles' gradients (the `cos` column logged by
+[`train.py`](src/cwsteer/train.py)) started near 0.48 and fell toward 0 as the adapter
+grew. A vector sketch is in [`docs/steering_geometry.svg`](docs/steering_geometry.svg).
 
 ## Sources
 

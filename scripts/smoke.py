@@ -26,7 +26,7 @@ from cwsteer import (
 )
 
 MODEL = "wassname/qwen3-5lyr-tiny-random"
-PROBE = "The capital of France is"
+PROBE = "The capital of France is "
 
 
 def load():

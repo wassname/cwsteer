@@ -1,0 +1,22 @@
+[project]
+name = "cwsteer"
+version = "0.0.1"
+description = "Contrastive weight steering: fit one conditioned adapter on (cho, rej) pairs, bake a calibrated signed c into the weights."
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "torch>=2.4",
+    # Qwen3 architecture support (the tiny smoke model is qwen3); apply_chat_template enable_thinking.
+    "transformers>=4.51",
+    "safetensors>=0.4",
+    "jaxtyping>=0.2.36",
+    "loguru>=0.7",
+    "tqdm>=4.66",
+    "tabulate>=0.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cwsteer"]

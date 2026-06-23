@@ -1,0 +1,15 @@
+{
+  "total": 81,
+  "by_source": {
+    "tiny-mfv": 64,
+    "genies_preferences": 17
+  },
+  "build_commit": "a7d9a3a",
+  "licenses": {
+    "tiny-mfv": "see hf wassname/tiny-mfv (Clifford-style moral vignettes)",
+    "genies_preferences": "see hf wassname/genies_preferences (GENIES)"
+  },
+  "eval_disjoint_from": "tiny-mfv ['classic', 'ai-actor'] (10-word shingle dedup)",
+  "training_backbone": "tiny-mfv scifi",
+  "reserved_for_eval": "AIRiskDilemmas (not used in this pool)"
+}

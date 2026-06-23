@@ -39,12 +39,12 @@ The two poles share one axis. The same pairs are trained under both signs of `c`
 updates reinforce one direction instead of fighting. At inference the dial `c` slides
 the model along that line. See [`train.py`](src/cwsteer/train.py).
 
-![steering direction](docs/steering_direction.png)
+![steering direction](docs/steering_geometry.png)
 
-*One adapter is one direction: the `+c` (cho over rej) and `-c` (rej over cho) poles
-would pull against each other, but training the same pairs under both signs makes them
-pull the same way. The gradient geometry behind this is an advanced aside in the
-[appendix](#appendix-gradient-geometry).*
+*One adapter is one direction. The two poles' training gradients (`g+` at `+c`, `g-` at
+`-c`) pull one shared axle; the `-c` sign flip makes them reinforce along the axle (`v`)
+while the sideways parts cancel, so the same pairs trained under both signs learn one
+direction. A little more detail in the [appendix](#appendix-gradient-geometry).*
 
 ## What this variant changes
 
@@ -130,12 +130,10 @@ rather than cancel? Picture each pole's gradient as a rope pulling the shared di
 (the axle through the base model at `0`). The two pulls open at an angle. In this
 idealised picture their shared along-the-axle component adds up and moves the direction,
 while the perpendicular parts are roughly equal and opposite and cancel. The `-c` sign
-flip is what points both gradients the same way along the axle. In our runs the cosine
-between the two poles' gradients (the `cos` column logged by
+flip is what points both gradients the same way along the axle (the figure above). In
+our runs the cosine between the two poles' gradients (the `cos` column logged by
 [`train.py`](src/cwsteer/train.py)) started near 0.48 and fell toward 0 as the adapter
 grew.
-
-![gradient geometry](docs/steering_geometry.png)
 
 ## Sources
 

@@ -48,7 +48,10 @@
   <text x="290" y="280" font-size="13" fill="#555" text-anchor="middle">0 (base)</text>
   <text x="356" y="186" font-size="14" fill="#1a1a1a">g+ (+c)</text>
   <text x="356" y="326" font-size="14" fill="#1a1a1a">g- (-c)</text>
+  <text x="560" y="118" font-size="14" fill="#222">+c team</text>
+  <text x="560" y="392" font-size="14" fill="#222">-c team</text>
   <text x="520" y="254" text-anchor="middle" font-size="12" fill="#c0392b">up/down</text>
   <text x="520" y="270" text-anchor="middle" font-size="12" fill="#c0392b">cancel</text>
-  <text x="360" y="416" text-anchor="middle" font-size="13" fill="#444">the -c flip points both gradients the same way along the axle, so they add (v); the sideways parts cancel.</text>
+  <text x="360" y="410" text-anchor="middle" font-size="13" fill="#444">flip one team's rope and they pull together, not against each other.</text>
+  <text x="360" y="428" text-anchor="middle" font-size="13" fill="#444">the -c sign flip points both gradients along the axle (v); the sideways parts cancel.</text>
 </svg>

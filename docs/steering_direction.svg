@@ -1,56 +1,53 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 440" font-family="Georgia, 'Times New Roman', serif">
-  <!-- For the next editor. Goal. build intuition for the weight steering direction as a tug of war. two frame gradients (plus C and minus C) pull one log, the adapter axis through zero (base, in weight space). their shared along the axle component is v, and the up and down parts are equal and opposite so they cancel. key insight the user landed on. the minus c sign flip makes both frames the same gradient at first order so they reinforce, and at C one they open to an angle equal to the cos column in the training trace. do not feature PCGrad, it is a minor cleanup that only acts when cos is negative, and featuring it confused several earlier drafts. style prefs. Tufte minimal, ASCII only no unicode, one space not two panels, no grid or frame, direct labels, one restrained hue for the learned object, render with cairosvg and eyeball before shipping. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 440" font-family="'Coming Soon','Comic Neue','Comic Sans MS',cursive">
+  <!-- For the next editor. XKCD style on purpose (the user asked for less-serious).
+       This is the INTUITION figure for the README body. Message: contrastive weight
+       steering trains ONE low-rank direction. The (cho>rej) pole and the (rej>cho)
+       pole would fight, so we flip one pole's pairs; then both pull the SAME direction
+       d, and at inference the signed dial c slides the model along that one line.
+       The precise vector geometry (why the flip makes the two gradients reinforce)
+       lives in docs/steering_geometry.svg, shown in the README appendix. Do NOT
+       feature PCGrad. Font is 'Coming Soon' (xkcd substitute, installed).
+       markerUnits=userSpaceOnUse so the head does not scale with stroke. Render with
+       cairosvg and eyeball before shipping. -->
   <defs>
-    <marker id="vt" markerWidth="11" markerHeight="11" refX="8" refY="3.5" orient="auto">
-      <path d="M0,0 L8,3.5 L0,7 Z" fill="#2a7f7f"/>
-    </marker>
-    <marker id="bk" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto">
-      <path d="M0,0 L6.5,3 L0,6 Z" fill="#1a1a1a"/>
+    <marker id="head" markerUnits="userSpaceOnUse" markerWidth="16" markerHeight="14" refX="11" refY="6" orient="auto">
+      <path d="M0,0 L13,6 L0,12 Z" fill="#2a7f7f"/>
     </marker>
   </defs>
 
-  <rect width="720" height="440" fill="#ffffff"/>
+  <!-- title -->
+  <text x="360" y="38" text-anchor="middle" font-size="21" fill="#222">two contrastive teams pulling one rope the SAME way</text>
 
-  <text x="40" y="30" font-size="15.5" fill="#1a1a1a">Two frame gradients pull the log; their common pull rolls it.</text>
-  <text x="40" y="50" font-size="12.5" fill="#777">The shared (along-axle) component adds &#8594; v; the up/down parts are equal and opposite, so they cancel.</text>
+  <!-- the model: a friendly log being rolled along d -->
+  <text x="162" y="210" text-anchor="middle" font-size="12" fill="#555">c = 0 : base model, untouched</text>
+  <rect x="95" y="224" width="135" height="28" rx="14" fill="#c9a86a" stroke="#7d6433" stroke-width="2"/>
+  <circle cx="118" cy="235" r="2.4" fill="#3a2f18"/>
+  <circle cx="134" cy="235" r="2.4" fill="#3a2f18"/>
+  <path d="M115,242 Q126,249 137,242" stroke="#3a2f18" stroke-width="1.6" fill="none" stroke-linecap="round"/>
 
-  <!-- the axle / steering direction -->
-  <line x1="120" y1="250" x2="560" y2="250" stroke="#bbb" stroke-width="1" stroke-dasharray="2 5"/>
-  <line x1="290" y1="250" x2="495" y2="250" stroke="#2a7f7f" stroke-width="4" marker-end="url(#vt)"/>
-  <text x="330" y="241" font-size="13" fill="#2a7f7f" font-style="italic">v = common pull</text>
+  <!-- the one direction d (the rope the teams pull) -->
+  <path d="M230,238 C 320,235 400,241 462,238" stroke="#2a7f7f" stroke-width="5" fill="none" stroke-linecap="round" marker-end="url(#head)"/>
+  <text x="318" y="282" text-anchor="middle" font-size="16" fill="#2a7f7f">the one direction d</text>
+  <text x="318" y="301" text-anchor="middle" font-size="12" fill="#2a7f7f">(one low-rank adapter)</text>
 
-  <!-- the log (axle through 0) -->
-  <rect x="232" y="242" width="116" height="16" rx="8" fill="#b08d57" stroke="#8a6d3b" stroke-width="1"/>
-  <circle cx="290" cy="250" r="3.5" fill="#1a1a1a"/>
-  <text x="290" y="278" font-size="11.5" fill="#555" text-anchor="middle">0 (base)</text>
+  <!-- top puller: +c team, grips the rope and pulls right -->
+  <circle cx="508" cy="200" r="11" fill="none" stroke="#222" stroke-width="2.4"/>
+  <path d="M508,211 L508,240" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <path d="M508,217 L470,233 M508,217 L522,224" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <path d="M508,240 L496,268 M508,240 L520,268" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <text x="592" y="150" text-anchor="middle" font-size="15" fill="#222">+c team</text>
+  <text x="592" y="168" text-anchor="middle" font-size="13" fill="#555">cho &gt; rej</text>
 
-  <!-- pull g+ (upper) and g- (lower) -->
-  <line x1="290" y1="250" x2="448" y2="152" stroke="#1a1a1a" stroke-width="1.8" marker-end="url(#bk)"/>
-  <text x="372" y="188" font-size="12" fill="#1a1a1a" font-style="italic">g+ (+C)</text>
-  <line x1="290" y1="250" x2="448" y2="348" stroke="#1a1a1a" stroke-width="1.8" marker-end="url(#bk)"/>
-  <text x="372" y="322" font-size="12" fill="#1a1a1a" font-style="italic">g- (-C)</text>
+  <!-- bottom puller: -c team, rope flipped, also pulls right -->
+  <circle cx="508" cy="300" r="11" fill="none" stroke="#222" stroke-width="2.4"/>
+  <path d="M508,311 L508,340" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <path d="M508,316 L470,243 M508,316 L522,310" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <path d="M508,340 L496,366 M508,340 L520,366" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <text x="592" y="312" text-anchor="middle" font-size="15" fill="#222">-c team</text>
+  <text x="592" y="330" text-anchor="middle" font-size="13" fill="#555">rej &gt; cho,</text>
+  <text x="592" y="346" text-anchor="middle" font-size="13" fill="#555">rope flipped</text>
 
-  <!-- the fighting (perpendicular) components that cancel -->
-  <line x1="450" y1="152" x2="450" y2="348" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4 3"/>
-
-  <!-- stick figure A (upper) -->
-  <g stroke="#444" stroke-width="1.6" fill="none">
-    <circle cx="470" cy="126" r="7" fill="#fff"/>
-    <line x1="470" y1="133" x2="470" y2="156"/>
-    <line x1="455" y1="150" x2="470" y2="142"/>
-    <line x1="470" y1="142" x2="455" y2="150"/>
-    <line x1="470" y1="156" x2="461" y2="174"/>
-    <line x1="470" y1="156" x2="481" y2="172"/>
-  </g>
-  <!-- stick figure B (lower) -->
-  <g stroke="#444" stroke-width="1.6" fill="none">
-    <circle cx="470" cy="374" r="7" fill="#fff"/>
-    <line x1="470" y1="367" x2="470" y2="344"/>
-    <line x1="455" y1="350" x2="470" y2="358"/>
-    <line x1="470" y1="344" x2="461" y2="326"/>
-    <line x1="470" y1="344" x2="481" y2="328"/>
-  </g>
-
-  <!-- tie to trace -->
-  <text x="40" y="410" font-size="12" fill="#555">Angle between the pulls = the trace 'cos' column (0.48 &#8594; 0 as the adapter grows at C=1).</text>
+  <!-- caption -->
+  <text x="360" y="404" text-anchor="middle" font-size="14" fill="#444">flip one team's rope and they pull together, not against each other.</text>
+  <text x="360" y="424" text-anchor="middle" font-size="14" fill="#444">then the dial c slides the model along that one line: +c one way, -c the other.</text>
 </svg>

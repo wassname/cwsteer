@@ -18,7 +18,6 @@ from loguru import logger
 from tqdm.auto import tqdm
 from transformers import LogitsProcessor, LogitsProcessorList
 
-from cwsteer.prompts_pool import POOL, rows_for_family
 
 
 LESSON_TODO = ("TODO(teacher): one sentence naming the disposition this "
@@ -307,40 +306,10 @@ def load_pairs_md(path: Path) -> tuple[str, list[dict]]:
     return "\n".join(lesson_lines).strip(), pairs
 
 
-def sample_prompts(n: int, *, seed: int) -> list[str]:
-    rng = random.Random(seed)
-    return (rng.sample(POOL, n) if n <= len(POOL)
-            else [rng.choice(POOL) for _ in range(n)])
-
-
-def sample_prompt_rows(
-    n: int,
-    *,
-    seed: int,
-    family: str,
-    required_axes: tuple[str, ...] = (),
-    forbidden_axes: tuple[str, ...] = (),
-    validated_only: bool = False,
-) -> list[dict]:
-    rows = rows_for_family(
-        family,
-        required_axes=required_axes,
-        forbidden_axes=forbidden_axes,
-        validated_only=validated_only,
-    )
-    rng = random.Random(seed)
-    rng.shuffle(rows)
-    picked: list[dict] = []
-    stem_counts: dict[str, int] = {}
-    for row in rows:
-        stem = _scenario_stem(row["text"])
-        if stem_counts.get(stem, 0) >= 3:
-            continue
-        picked.append(row)
-        stem_counts[stem] = stem_counts.get(stem, 0) + 1
-        if len(picked) == min(n, len(rows)):
-            break
-    return [{**row, "text": training_prompt_surface(row["text"])} for row in picked[:n]]
+# NOTE: prompt sampling (sample_prompts / sample_prompt_rows) and the csm prompt
+# pool lived here but are the CALLER's data layer, not the generic engine:
+# generate_pairs_from_personas takes `prompts: list[str]` directly. They stay in
+# the harness (w2schar-mini); cwsteer supplies prompts as an argument.
 
 
 def _scenario_stem(text: str) -> str:

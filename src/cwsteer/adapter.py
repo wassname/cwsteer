@@ -231,6 +231,12 @@ class ModulatedLoRA:
 # (Δs_i = -S_i / c kills it) — the parameterisation gives the optimiser
 # *signed authority over each top singular direction*, which is the point.
 #
+# TODO(capacity): diag(Δs) is rank-r DIAGONAL — underparametrised (only r trainable
+# numbers for the whole adapter). Per lora-lite, inserting a small r×r matrix M
+# (e.g. upper-triangular) so the update is U·(diag(S) + c·M)·Vh adds r(r+1)/2 params
+# and lets the optimiser MIX the top directions, not just rescale each one
+# independently. Cheap capacity bump; try if Δs-only steering underfits.
+#
 # Top-r selection (`selection_score`):
 #   - "s_only"       : top S_full (PiSSA default — broad/blunt for instruct LMs)
 #   - "wanda"        : S_full · ||X·Vh_full||  (Wanda pruning score; biases top-S)

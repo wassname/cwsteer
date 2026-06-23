@@ -58,8 +58,8 @@ A few changes to the base method:
   that starts the adapter from the top-r SVD of the weight, rather than a random
   low-rank init (this mutates the float weight at init, so quantised models use
   the plain LoRA adapter instead) ([`adapter.py`](src/cwsteer/adapter.py))
-- a KL constraint to the base model that keeps generations coherent under steering
-  ([`train.py`](src/cwsteer/train.py))
+- a KL constraint that limits how much steering shifts the output distribution away
+  from the base model ([`train.py`](src/cwsteer/train.py))
 - a calibration pass that finds the largest coherent steering strength before
   replaying the completions (optional, mainly for repeated applications)
   ([`c_scan.py`](src/cwsteer/c_scan.py))
@@ -88,6 +88,14 @@ adds an external objective: nll over the model's own completions. I haven't yet
 built a good intuition for what this means for behaviours like sandbagging and
 reward hacking, which result from a mismatch between outer logprobs and inner
 hidden states.
+
+## Install
+
+```sh
+git clone https://github.com/wassname/cwsteer && cd cwsteer
+uv sync                          # or: pip install -e .
+uv run python scripts/smoke.py   # optional: verify the core on a tiny model
+```
 
 ## Quickstart
 
@@ -135,6 +143,24 @@ flip is what points both gradients the same way along the axle (the figure above
 our runs the cosine between the two poles' gradients (the `cos` column logged by
 [`train.py`](src/cwsteer/train.py)) started near 0.48 and fell toward 0 as the adapter
 grew.
+
+This is the key difference from ordinary supervised fine-tuning. SFT maximises the
+likelihood of one target and learns whatever lowers loss, including the direction `cho`
+and `rej` have in common. Training both signs cancels that shared component and keeps only
+the bidirectional axis that separates the two poles. And because the adapter enters as
+`c·δ`, every weight update is a bidirectional move through `0`: `+c` and `-c` are the same
+`δ` with opposite sign, so each update is symmetric about the base model rather than a
+one-way push.
+
+So unlike SFT, the update is internally constrained and parametrised rather than free
+output tuning. That is what you want if you are moving toward internal interventions (in
+the direction of activation steering) and away from fitting outputs (SFT, RL) -- though it
+still sits short of pure activation steering, which carries no external likelihood
+objective at all.
+
+This is the promise of steering: no new reward labels. You pick the contrast axis (the
+personas and prompts), and the model's own on-policy completions and internal directions
+supply the rest of the signal.
 
 ## Sources
 

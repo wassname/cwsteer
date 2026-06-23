@@ -6,3 +6,4 @@ out/
 *.safetensors
 .env
 .DS_Store
+docs/reviews/

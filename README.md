@@ -1,7 +1,7 @@
 # cwsteer — contrastive weight steering
 
-A small, working, library for steering a language model along a contrastive axis by editing
-its weights. It's a modification of[Fierro & Roger, 2025 - Weight steering](https://arxiv.org/abs/2511.05408). It fits one conditioned adapter on (chosen, rejected) completion pairs, calibrates the steering strength so generations stay coherent, then bakes the chosen strength into the weights for inference.
+A small, working library for steering a language model along a contrastive axis by editing
+its weights. It's a modification of [Fierro & Roger, 2025 - Weight steering](https://arxiv.org/abs/2511.05408). It fits one conditioned adapter on (chosen, rejected) completion pairs, calibrates the steering strength so generations stay coherent, then bakes the chosen strength into the weights for inference.
 
 ## Weight steering
 
@@ -26,10 +26,11 @@ $$y = x W^\top + c \cdot \frac{\alpha}{r}\,(x A^\top) B^\top$$
 
 `c = 0` gives exactly the base model; `+c` and `-c` are the two signed poles of one
 low-rank direction. The PiSSA variant differs: at init it replaces `W` with the
-residual `W - U_r S_r V_r^\top` and adds the top-`r` SVD back in the forward pass with
-its singular values scaled by `c`, so `c = 0` still reconstructs the base (modulo the
-SVD round-trip) and `±c` grow or shrink those directions. See
-[`adapter.py`](src/cwsteer/adapter.py).
+residual `W - U_r S_r V_r^\top` and *always* adds the top-`r` SVD back in the forward
+pass as `U_r \mathrm{diag}(S_r + c\,\Delta s) V_r^\top`, where the dial `c` scales only
+the trained singular-value deltas `Δs` (not the whole SVD). So `c = 0` adds back
+`U_r S_r V_r^\top` and reconstructs the base (up to SVD round-off), while `±c` grow or
+shrink those top directions. See [`adapter.py`](src/cwsteer/adapter.py).
 
 The persona used to elicit the contrast is carried by the completions only, and is
 stripped before training, so it is not part of the deployed adapter.

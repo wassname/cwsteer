@@ -39,7 +39,7 @@ The two poles share one axis. The same pairs are trained under both signs of `c`
 updates reinforce one direction instead of fighting. At inference the dial `c` slides
 the model along that line. See [`train.py`](src/cwsteer/train.py).
 
-![steering direction](docs/steering_direction.svg)
+![steering direction](docs/steering_direction.png)
 
 *One adapter is one direction: the `+c` (cho over rej) and `-c` (rej over cho) poles
 would pull against each other, but training the same pairs under both signs makes them
@@ -52,27 +52,33 @@ A few changes to the base method:
 
 - one parameterized adapter instead of two separate adapters: a single low-rank
   direction with a signed strength `c`, so the two poles share one axis and `c=0`
-  is exactly the base model
+  is exactly the base model ([`adapter.py`](src/cwsteer/adapter.py))
 - a PiSSA ([Meng et al., 2024](https://arxiv.org/abs/2404.02948)) initialisation
   that starts the adapter from the top-r SVD of the weight, rather than a random
   low-rank init (this mutates the float weight at init, so quantised models use
-  the plain LoRA adapter instead)
+  the plain LoRA adapter instead) ([`adapter.py`](src/cwsteer/adapter.py))
 - a KL constraint to the base model that keeps generations coherent under steering
+  ([`train.py`](src/cwsteer/train.py))
 - a calibration pass that finds the largest coherent steering strength before
   replaying the completions (optional, mainly for repeated applications)
+  ([`c_scan.py`](src/cwsteer/c_scan.py))
 - a logit filter during generation that keeps the persona used to elicit the
-  contrast from leaking into the completions
+  contrast from leaking into the completions ([`pairs.py`](src/cwsteer/pairs.py))
 - a generation filter that drops pairs showing leakage, refusal, repetition, or
-  too little contrast
-- stricter contrastive pair filtering
+  too little contrast ([`pairs.py`](src/cwsteer/pairs.py))
+- stricter contrastive pair filtering ([`pairs.py`](src/cwsteer/pairs.py))
+
+Personas and prompts are validated with the
+[persona-steering template library](https://github.com/wassname/persona-steering-template-library)
+before use; if the pairs don't cleanly separate the behaviour, everything downstream
+fails.
 
 The single signed adapter, KL constraint, calibration, and pair filtering follow
 earlier [AntiPaSTO work](https://arxiv.org/pdf/2601.07473); PiSSA is a separate
 existing method.
 
-This repo currently holds the adapter, training, and bake/restore core. The
-generation, filtering, and calibration passes live in the harness they were
-extracted from and move here as they are generalised.
+The adapter, training, and bake core are smoke-tested; the calibration, generation,
+and filtering modules are in the repo and being wired into the smoke.
 
 Weight steering is less purely "internal" than activation steering, because it
 adds an external objective: nll over the model's own completions. I haven't yet
@@ -125,7 +131,9 @@ while the perpendicular parts are roughly equal and opposite and cancel. The `-c
 flip is what points both gradients the same way along the axle. In our runs the cosine
 between the two poles' gradients (the `cos` column logged by
 [`train.py`](src/cwsteer/train.py)) started near 0.48 and fell toward 0 as the adapter
-grew. A vector sketch is in [`docs/steering_geometry.svg`](docs/steering_geometry.svg).
+grew.
+
+![gradient geometry](docs/steering_geometry.png)
 
 ## Sources
 

@@ -1,52 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 440" font-family="'Coming Soon','Comic Neue','Comic Sans MS',cursive">
-  <!-- For the next editor. XKCD style on purpose (the user asked for less-serious).
-       This is the INTUITION figure for the README body. Message: contrastive weight
-       steering trains ONE low-rank direction. The (cho>rej) pole and the (rej>cho)
-       pole would fight, so we flip one pole's pairs; then both pull the SAME direction
-       d, and at inference the signed dial c slides the model along that one line.
-       The precise vector geometry (why the flip makes the two gradients reinforce)
-       lives in docs/steering_geometry.svg, shown in the README appendix. Do NOT
-       feature PCGrad. Font is 'Coming Soon' (xkcd substitute, installed).
-       markerUnits=userSpaceOnUse so the head does not scale with stroke. Render with
-       cairosvg and eyeball before shipping. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 440" font-family="'xkcd Script','Comic Neue',cursive">
+  <!-- For the next editor. Real xkcd style: font 'xkcd Script' (ipython/xkcd-font),
+       hand-drawn wobble via feTurbulence+feDisplacementMap (rsvg-convert and browsers
+       honor it; cairosvg does NOT, so render the PNG with rsvg-convert), xkcd stick
+       figures. Drawing is grouped under filter='url(#rough)'; TEXT is kept outside so
+       the glyphs stay crisp. The README embeds the rendered PNG (GitHub may not run
+       SVG filters). Message: one low-rank direction; the +c (cho>rej) and -c (rej>cho)
+       poles would fight, so the same pairs are trained under both signs and reinforce
+       one direction; the dial c slides the model along it. Do NOT feature PCGrad. -->
   <defs>
     <marker id="head" markerUnits="userSpaceOnUse" markerWidth="16" markerHeight="14" refX="11" refY="6" orient="auto">
       <path d="M0,0 L13,6 L0,12 Z" fill="#2a7f7f"/>
     </marker>
+    <filter id="rough" x="-6%" y="-6%" width="112%" height="112%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="2" seed="7" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="4.5"/>
+    </filter>
   </defs>
 
-  <!-- title -->
+  <g filter="url(#rough)">
+    <!-- the model: a plain log being rolled along d -->
+    <rect x="95" y="224" width="135" height="28" rx="14" fill="#c9a86a" stroke="#7d6433" stroke-width="2"/>
+    <path d="M128,224 Q124,238 128,252 M150,224 Q146,238 150,252 M172,224 Q176,238 172,252" stroke="#7d6433" stroke-width="1" fill="none" opacity="0.6"/>
+
+    <!-- the one direction d (the rope the teams pull) -->
+    <path d="M230,238 C 320,235 400,241 462,238" stroke="#2a7f7f" stroke-width="5" fill="none" stroke-linecap="round" marker-end="url(#head)"/>
+
+    <!-- top puller: +c team -->
+    <circle cx="508" cy="200" r="11" fill="none" stroke="#222" stroke-width="2.4"/>
+    <path d="M508,211 L508,240 M508,217 L470,233 M508,217 L522,224 M508,240 L496,268 M508,240 L520,268" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+
+    <!-- bottom puller: -c team -->
+    <circle cx="508" cy="300" r="11" fill="none" stroke="#222" stroke-width="2.4"/>
+    <path d="M508,311 L508,340 M508,316 L470,243 M508,316 L522,310 M508,340 L496,366 M508,340 L520,366" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- text kept OUTSIDE the wobble filter so glyphs stay crisp -->
   <text x="360" y="38" text-anchor="middle" font-size="21" fill="#222">two contrastive teams pulling one rope the SAME way</text>
-
-  <!-- the model: a friendly log being rolled along d -->
   <text x="162" y="210" text-anchor="middle" font-size="12" fill="#555">c = 0 : base model, untouched</text>
-  <rect x="95" y="224" width="135" height="28" rx="14" fill="#c9a86a" stroke="#7d6433" stroke-width="2"/>
-  <path d="M128,224 Q124,238 128,252 M150,224 Q146,238 150,252 M172,224 Q176,238 172,252" stroke="#7d6433" stroke-width="1" fill="none" opacity="0.6"/>
   <text x="162" y="246" text-anchor="middle" font-size="12" fill="#5b4a23">the model</text>
-
-  <!-- the one direction d (the rope the teams pull) -->
-  <path d="M230,238 C 320,235 400,241 462,238" stroke="#2a7f7f" stroke-width="5" fill="none" stroke-linecap="round" marker-end="url(#head)"/>
   <text x="318" y="282" text-anchor="middle" font-size="16" fill="#2a7f7f">the one direction d</text>
   <text x="318" y="301" text-anchor="middle" font-size="12" fill="#2a7f7f">(one low-rank adapter)</text>
-
-  <!-- top puller: +c team, grips the rope and pulls right -->
-  <circle cx="508" cy="200" r="11" fill="none" stroke="#222" stroke-width="2.4"/>
-  <path d="M508,211 L508,240" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
-  <path d="M508,217 L470,233 M508,217 L522,224" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
-  <path d="M508,240 L496,268 M508,240 L520,268" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
   <text x="592" y="150" text-anchor="middle" font-size="15" fill="#222">+c team</text>
   <text x="592" y="168" text-anchor="middle" font-size="13" fill="#555">cho &gt; rej</text>
-
-  <!-- bottom puller: -c team, rope flipped, also pulls right -->
-  <circle cx="508" cy="300" r="11" fill="none" stroke="#222" stroke-width="2.4"/>
-  <path d="M508,311 L508,340" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
-  <path d="M508,316 L470,243 M508,316 L522,310" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
-  <path d="M508,340 L496,366 M508,340 L520,366" stroke="#222" stroke-width="2.4" fill="none" stroke-linecap="round"/>
   <text x="592" y="312" text-anchor="middle" font-size="15" fill="#222">-c team</text>
   <text x="592" y="330" text-anchor="middle" font-size="13" fill="#555">rej &gt; cho,</text>
   <text x="592" y="346" text-anchor="middle" font-size="13" fill="#555">rope flipped</text>
-
-  <!-- caption -->
   <text x="360" y="404" text-anchor="middle" font-size="14" fill="#444">flip one team's rope and they pull together, not against each other.</text>
   <text x="360" y="424" text-anchor="middle" font-size="14" fill="#444">then the dial c slides the model along that one line: +c one way, -c the other.</text>
 </svg>

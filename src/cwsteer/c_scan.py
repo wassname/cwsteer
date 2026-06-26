@@ -284,7 +284,7 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
                     enable_thinking: bool = False) -> dict:
     """One scan point under c:
       - tinymfv classic (n_vignettes) → `pmass` (p_ans_all, OOD forced-choice aliveness);
-        also logs `ppx_json_mfv` (exp mean_nll_json on the guided answer prefill) and
+        also logs `ppx_json_mfv` (exp mean_nll_prefill on the guided answer prefill) and
         `top1_acc` as diagnostics.
       - unified CANARY_PROBES (2x2 IID/OOD × multiturn/single) → per-probe rep,
         valid_json, ppx_json; aggregated to rep_min (the GATED loop signal — a loop in
@@ -304,7 +304,7 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
         pmass = float(mfv["mean_pmass_allowed"])
         if not math.isfinite(pmass):
             raise RuntimeError(f"NaN pmass at c={c}")
-        mfv_nll = mfv.get("mean_nll_json")
+        mfv_nll = mfv.get("mean_nll_prefill")
         ppx_json_mfv = (math.exp(mfv_nll) if mfv_nll is not None and math.isfinite(mfv_nll)
                         else float("nan"))
         top1_acc = mfv.get("top1_acc")
@@ -476,7 +476,7 @@ def c_scan(model, tok, lora: ModulatedLoRA, *,
         "  - ppxJ↓     : exp(mean nll) over the EMITTED json span, free-gen probes "
         "(per-step confidence over the answer format; high = the model was unsure of "
         "its own json). DIAGNOSTIC, un-gated.",
-        "  - ppxJmfv↓  : exp(mean_nll_json) from the tinymfv guided answer prefill. "
+        "  - ppxJmfv↓  : exp(mean_nll_prefill) from the tinymfv guided answer prefill. "
         "DIAGNOSTIC.",
         "  - top1      : tinymfv top-1 foundation accuracy vs human labels. DIAGNOSTIC.",
         "  - kl        : fwd/bwd p95 per-token KL(steered‖base) on the multiturn "

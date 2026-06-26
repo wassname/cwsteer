@@ -7,9 +7,15 @@ no network beyond the HF cache (~1-2 min):
   B. ModulatedPiSSA c=0 ≈ base (SVD round-trip, bf16 noise); +c/-c differ.
   C. train_adapter runs the full NLL + KL + PCGrad + val path on toy pairs.
   D. baked() shifts the output, then restores base byte-identically on exit.
+  E. generate_pairs_from_personas: on-policy poles + logit-filter + degenerate-drop.
+  F. c_scan calibration WITH the real tinymfv backend (n_vignettes>0): the
+     forced-choice pmass + mean_nll_prefill path returns finite readings.
 
-Each check is a fail-fast assert: a green run means the four invariants hold.
+Each check is a fail-fast assert: a green run means the invariants hold. F needs
+the tiny-mfv dev dependency (pyproject [dependency-groups].dev).
 """
+import math
+
 import torch
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -131,12 +137,22 @@ def main():
         assert set(r) >= {"prompt", "cho", "rej"} and r["cho"] != r["rej"], f"bad pair row {r!r}"
     logger.info(f"E pole-gen OK: kept {len(pairs_out)} on-policy pairs (logit filter + degenerate-drop ran)")
 
-    # ── F. c_scan calibration: walk c down until the 3 coherence gates hold ────
-    # n_vignettes=0 -> no tinymfv (pmass forced 1.0); tiny token budgets keep it fast.
-    c_cal, _scan_log = c_scan(model, tok, trained, init_c=1.0, n_vignettes=0,
-                              max_think_tokens=8, probe_max_new_tokens=16, batch_size=1)
+    # ── F. c_scan calibration WITH tinymfv: walk c down until the 3 gates hold ─
+    # n_vignettes=2 exercises the REAL tinymfv forced-choice path (pmass +
+    # mean_nll_prefill). On a random model pmass≈0, but it must be FINITE -- that
+    # proves the tinymfv API wiring, not adapter quality. ppx_json_mfv is NaN iff
+    # the mean_nll_prefill key is wrong, so a finite value is the regression guard
+    # for the new-tinymfv rename. Tiny token budgets keep it fast.
+    c_cal, scan_log = c_scan(model, tok, trained, init_c=1.0, n_vignettes=2,
+                             max_think_tokens=8, probe_max_new_tokens=16, batch_size=1)
     assert 0.0 < c_cal <= 1.0, f"c_scan returned out-of-range c={c_cal}"
-    logger.info(f"F c_scan OK: calibrated c={c_cal:.3f} (n_vignettes=0, tinymfv-free)")
+    base_row = scan_log[0]  # baseline @ c=0, carries the tinymfv readings
+    assert math.isfinite(base_row["pmass"]), f"tinymfv pmass not finite: {base_row['pmass']}"
+    assert math.isfinite(base_row["ppx_json_mfv"]), (
+        f"ppx_json_mfv is NaN -> mean_nll_prefill key broken for this tinymfv: "
+        f"{base_row['ppx_json_mfv']}")
+    logger.info(f"F c_scan + tinymfv OK: c={c_cal:.3f}, base pmass={base_row['pmass']:.2e}, "
+                f"ppx_json_mfv={base_row['ppx_json_mfv']:.1f} (real tinymfv path)")
 
     logger.success("cwsteer smoke PASSED — adapter (LoRA + PiSSA), train, bake/restore, "
                    "pole-gen + logit-filter, c_scan calibration all green")

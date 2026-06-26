@@ -14,6 +14,15 @@ dependencies = [
     "tabulate>=0.9",
 ]
 
+# tinymfv is a RUNTIME-optional eval backend (c_scan lazy-imports it for the
+# forced-choice pmass gate). It is a DEV dependency so `just smoke` exercises the
+# real tinymfv path; library consumers who don't calibrate against it skip it.
+[dependency-groups]
+dev = ["tiny-mfv"]
+
+[tool.uv.sources]
+tiny-mfv = { path = "/media/wassname/SGIronWolf/projects5/2026/lite/tinymfv", editable = true }
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

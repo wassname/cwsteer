@@ -65,7 +65,13 @@ def main():
     ap.add_argument("--n-prompts", type=int, default=40)
     ap.add_argument("--steps", type=int, default=200)
     ap.add_argument("--n-vignettes", type=int, default=16)
-    ap.add_argument("--max-new-tokens", type=int, default=256)
+    # 128, not 256: at 256 the 'weighs who is affected' persona runs gemma-2-2b
+    # into an enumeration loop (cho becomes a 250-tok run-on vs a 1-sentence rej),
+    # which both skews length and blows train memory on the 256k-vocab logits.
+    ap.add_argument("--max-new-tokens", type=int, default=128)
+    # train batch 2, not the TrainCfg default 4: gemma-2's 256k vocab makes the
+    # cross_entropy logits.float() the memory hog; 4 OOMs a 24GB card by ~250MB.
+    ap.add_argument("--batch-size", type=int, default=2)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", default="out/run")
     args = ap.parse_args()
@@ -94,12 +100,12 @@ def main():
                 f"CHO (pos pole): {p0['cho']}\nREJ (neg pole): {p0['rej']}")
 
     # === 2. train the weight-steering adapter on (cho, rej) ===
-    cfg = TrainCfg(steps=args.steps)  # r=16, alpha=32, lr=2e-4, kl=0.032, pcgrad -- defaults
+    cfg = TrainCfg(steps=args.steps, batch_size=args.batch_size)  # r=16, alpha=32, lr=2e-4, kl=0.032, pcgrad -- defaults
     trained = train_adapter(model, tok, pairs, cfg, adapter_cls=ModulatedPiSSA)
 
     # === 3. calibrate |c| against the tinymfv coherence gates ===
     c_cal, scan = c_scan(model, tok, trained, init_c=1.0, n_vignettes=args.n_vignettes,
-                         max_think_tokens=64, probe_max_new_tokens=256, batch_size=8)
+                         max_think_tokens=64, probe_max_new_tokens=128, batch_size=4)
     base_row = scan[0]
     logger.info(f"=== calibrated c={c_cal:.3f} | base pmass={base_row['pmass']:.3f} "
                 f"ppx_json_mfv={base_row['ppx_json_mfv']:.1f} ===")

@@ -103,6 +103,16 @@ loss, including things `cho` and `rej` have in common. Here the same adapter is 
 under `+c` and `-c`, so the shared component cancels and the separating direction is
 reinforced.
 
+A push-only cap gives unequal weights to a reply at the two signs, so shared
+formatting can enter the update. Instead, use one coupled loss:
+
+$$M = C[(\ell_{cho}(-C)-\ell_{cho}(+C))-(\ell_{rej}(-C)-\ell_{rej}(+C))],\qquad L = \operatorname{mean}(\operatorname{softplus}(-M)) + \lambda_{KL} KL.$$
+
+Here $\ell$ is mean completion-token NLL, $C$ is the positive steering strength,
+and $KL$ is the existing mean top-256 reverse-KL penalty to the base model.
+One sigmoid weight applies to all four terms, so even-in-$C$ changes cancel;
+both signs receive gradients. <!-- PI/OpenAI -->
+
 That is why this is closer to steering than SFT: the update is constrained to a
 bidirectional axis through the base model. It is still not pure activation steering,
 because it trains with an external likelihood objective.

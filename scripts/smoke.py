@@ -5,7 +5,7 @@ no network beyond the HF cache (~1-2 min):
 
   A. ModulatedLoRA  c=0 == base EXACTLY (hook short-circuit); +c/-c differ.
   B. ModulatedPiSSA c=0 ≈ base (SVD round-trip, bf16 noise); +c/-c differ.
-  C. train_adapter runs the full NLL + KL + PCGrad + val path on toy pairs.
+  C. train_adapter runs coupled preference loss + KL + val on toy pairs. -- PI/OpenAI
   D. baked() shifts the output, then restores base byte-identically on exit.
   E. generate_pairs_from_personas: on-policy poles + logit-filter + degenerate-drop.
   F. c_scan calibration WITH the real tinymfv backend (n_vignettes>0): the
@@ -82,9 +82,9 @@ def main():
     assert d_pn > 0, "+c and -c must differ from each other"
     logger.info(f"A LoRA OK: |c0-base|=0 exact, |+1-base|={d_p:.4f}, |-1-base|={d_n:.4f}, |+1 - -1|={d_pn:.4f}")
 
-    # ── C. train_adapter: full NLL + KL + PCGrad + val path ──────────────────
+    # C. Coupled preference loss + KL + val. -- PI/OpenAI
     cfg = TrainCfg(r=8, alpha=16.0, steps=10, batch_size=2, n_val_pairs=2,
-                   lr=1e-3, kl_lambda=0.03, pcgrad=True, max_len=64)
+                   lr=1e-3, kl_lambda=0.03, max_len=64)
     trained = train_adapter(model, tok, toy_pairs(), cfg, adapter_cls=ModulatedLoRA)
     with trained(model, c=1.0):
         yt = logits(model, ids)

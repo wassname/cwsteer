@@ -100,7 +100,7 @@ def main():
                 f"CHO (pos pole): {p0['cho']}\nREJ (neg pole): {p0['rej']}")
 
     # === 2. train the weight-steering adapter on (cho, rej) ===
-    cfg = TrainCfg(steps=args.steps, batch_size=args.batch_size)  # r=16, alpha=32, lr=2e-4, kl=0.032, pcgrad -- defaults
+    cfg = TrainCfg(steps=args.steps, batch_size=args.batch_size)
     trained = train_adapter(model, tok, pairs, cfg, adapter_cls=ModulatedPiSSA)
 
     # === 3. calibrate |c| against the tinymfv coherence gates ===

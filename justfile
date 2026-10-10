@@ -1,5 +1,8 @@
 # cwsteer recipes
 
+test:
+    uv run python -m unittest discover -s tests/regression -v
+
 # Fast CPU smoke: c=0==base invariant, steering effect, train, bake/restore on a
 # tiny random Qwen3. No GPU, no network beyond the HF cache. ~1-2 min.
 smoke:

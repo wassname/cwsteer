@@ -304,7 +304,7 @@ def coherence_check(model, tok, lora: ModulatedLoRA, c: float, *,
         pmass = float(mfv["mean_pmass_allowed"])
         if not math.isfinite(pmass):
             raise RuntimeError(f"NaN pmass at c={c}")
-        mfv_nll = mfv.get("mean_nll_prefill")
+        mfv_nll = mfv["mean_nll_prefill"]
         ppx_json_mfv = (math.exp(mfv_nll) if mfv_nll is not None and math.isfinite(mfv_nll)
                         else float("nan"))
         top1_acc = mfv.get("top1_acc")

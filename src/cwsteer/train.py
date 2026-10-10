@@ -1,58 +1,21 @@
-"""Path-loss ModulatedLoRA training with reverse-KL coherence penalty.
+"""Coupled preference loss with a top-K reverse-KL penalty. -- PI/OpenAI
 
-Forked from `weight-steering-lite/src/wsl/train.py`, trimmed:
-- Full KL on logits (no top-K approximation). Fine for the smaller models
-  + smaller batches we use here; swap to top-K if memory becomes the
-  bottleneck.
-- Dropped held-out probe-eval loop (we evaluate via dialogue after train).
-
-Per (prompt, cho, rej), sampled C ∈ (0, 1]:
-
-    nll̃_b(x) ≡ nll_b(x) / max(detach(nll_b(x)), 1)     (PUSH side only)
-    L_pos_nll = C · (mean_b nll(cho|+C) − mean_b nll̃(rej|+C))
-    L_neg_nll = C · (mean_b nll(rej|−C) − mean_b nll̃(cho|−C))
-
-Margin formulation: subtraction cancels the shared-fluency direction
-(both cho and rej would lower nll under a fluency-only adapter), so
-the surviving gradient component is the persona axis.
-
-**Asymmetric cap — PUSH only.** Cross-entropy is asymmetric: the PULL
-term (minimize nll toward the label) has a bounded, self-limiting
-gradient that → 0 as nll → 0; the PUSH term (maximize nll away from
-the label) grows without bound (∇(-log p) ∝ 1/p) and under raw margin
-dominates θ-updates, blowing up to nll ~ 60 with ‖g‖ ~ 5800 (task 101).
-So we cap ONLY the two PUSH terms via `_normed_mean` (divide each
-sample by its detached nll, floored at 1 → ‖per-sample grad‖ scale-
-free, runaway tamed) and leave the two PULL terms at raw `.mean()`.
-
-Why PULL stays raw: capping it (task 101/20 capped BOTH) inverted the
-intended balance. The on-policy rej-pull (nll < 1, floored → unscaled)
-ran at full gradient and learned from step 1, while the off-policy
-cho-pull (nll ~ 3 → throttled ×1/3) — the actual behaviour change —
-stayed stuck. Raw PULL lets the far pole (cho) make the bigger
-gradient, which is the direction we want to learn.
-
-Replaces the post-autograd per-side `TARGET_G_NORM=5.0` equalization
-in 6e1ec5c, which equalized BETWEEN the two C-sign frames but not
-WITHIN each frame (cho-pull vs rej-push); the within-frame asymmetry
-was the actual runaway source.
-
-β trades steering signal vs distribution shift; weight-decay + β
-jointly pull toward "no-op" while NLL pulls toward cho/rej.
-
-`base` is the c=0 forward = pristine base (HistoryBake gate disabled
-when `lora._c == 0`). So a new adapter that fights a prior bake pays
-its KL bill cumulatively from base, not iteratively from last bake.
+A push-only cap gives unequal weights to a reply at +C and -C.
+For per-pair completion NLLs ℓ, train both signs with:
+    M = C * ((ℓ_cho(-C) - ℓ_cho(+C)) - (ℓ_rej(-C) - ℓ_rej(+C)))
+    L = mean(softplus(-M)) + kl_lambda * mean(KL_pos, KL_neg)
+One sigmoid weight applies to all four NLLs, so even-in-C terms cancel.
+Both signs receive gradients; KL anchors likelihood rather than the margin.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import torch
 from loguru import logger
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.checkpoint import checkpoint
 from transformers import get_cosine_schedule_with_warmup
 from tqdm.auto import tqdm
 
@@ -78,15 +41,6 @@ class TrainCfg:
     """β: coefficient on mean reverse-KL per step (nats, matches NLL units).
     0 disables. Bump up if Δnll blows past +0.02 (coherence breaks); bump
     down if eval Δ stays at noise."""
-    pcgrad: bool = True
-    """ON (2026-06-06, re-enabled). Was OFF 2026-06-03 as near-inert on the
-    margin loss (task-31: conflict branch fired 42/240 steps, cos median 0.027 —
-    the margin formulation already killed the old cos≈-0.97 shared-fluency
-    conflict). Re-enabled because the per-pair EDIT workflow can push cho
-    off-policy relative to its on-policy rej, reintroducing the cho-pull vs
-    rej-push gradient conflict PCGrad de-conflicts (audit lens e). Cheap: the
-    projection only fires on steps where cos<0, and cos/conflict are logged
-    either way, so if a run shows it still never fires we drop it again."""
     seed: int = 42
     # ─ PiSSA-only ─ (ignored for ModulatedLoRA)
     pissa_selection_score: str = "cho_rej_min_std"
@@ -181,15 +135,13 @@ def _per_sample_nll(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     return (loss_per_tok * mask).sum(-1) / mask.sum(-1).clamp(min=1.0)
 
 
-def _normed_mean(nll_b: torch.Tensor) -> torch.Tensor:
-    """nll_b / max(detach(nll_b), 1), then batch-averaged. PUSH-side only:
-    caps each sample's per-step gradient at ~unit by cancelling the 1/p
-    blow-up of CE's away-from-label (maximize-nll) side. Floor at 1 means
-    samples already below nll=1 pass through unscaled. PULL terms do NOT
-    use this — see module docstring (capping pull throttled the off-policy
-    cho-pull and inverted the intended balance)."""
-    denom = nll_b.detach().clamp_min(1.0)
-    return (nll_b / denom).mean()
+def _odd_pair_loss(
+    nll_cho_p: torch.Tensor, nll_rej_p: torch.Tensor,
+    nll_cho_n: torch.Tensor, nll_rej_n: torch.Tensor, *, C: float,
+) -> torch.Tensor:
+    """One shared per-pair weight, with gradients through both signs. -- PI/OpenAI"""
+    margin = C * ((nll_cho_n - nll_cho_p) - (nll_rej_n - nll_rej_p))
+    return torch.nn.functional.softplus(-margin).mean()
 
 
 @torch.no_grad()
@@ -259,31 +211,19 @@ def _kl_topk_base(logits_steer, base_top_logp_K, base_top_idx, labels):
     return kl_per_tok[mask_sh.bool()].mean()
 
 
-def pcgrad_train_step(
+def train_step(
     model, lora: ModulatedLoRA,
     ip, lp, ap, in_, ln, an,
     params: list,
     *,
     C: float,
-    pcgrad: bool = True,
     kl_lambda: float = 0.0,
 ) -> dict:
-    """One step: margin NLL on both poles + (optional) KL anchor to c=0.
-    PCGrad operates on the (margin_pos, margin_neg) gradients only — KL
-    is added unprojected.
-
-    Margin formulation:
-      L_pos = C · (mean nll(cho|+C) − mean nll(rej|+C))
-      L_neg = C · (mean nll(rej|−C) − mean nll(cho|−C))
-    The shared-fluency direction (cho and rej both lower nll when adapter
-    fits style) cancels in the difference; only the persona-axis component
-    survives. Earlier per-sample-NLL formulation was dominated by the shared
-    component (cos(g_pos, g_neg) ≈ -0.97 just from the c-sign flip on a
-    shared signal).
-    """
+    """Coupled four-NLL preference gradient plus the c=0 KL penalty. -- PI/OpenAI"""
     use_kl = kl_lambda > 0
     device = next(p.device for p in params)
     zero = torch.zeros((), device=device)
+    base_top_logp_p = base_top_idx_p = base_top_logp_n = base_top_idx_n = None
 
     # ---- c=0 reference forwards (no grad, raw logits → top-K → K-renorm) ----
     # Skip the full-vocab log_softmax: topk on raw logits gives the same
@@ -306,99 +246,51 @@ def pcgrad_train_step(
                 base_top_logp_n = v_n - torch.logsumexp(v_n, dim=-1, keepdim=True)
                 del logits_b_n, b_top_n, v_n
 
-    # ---- both inputs at c=+C  (cho prefer, rej penalize) ------------------
-    with lora(model, c=+C):
-        out_cp = model(input_ids=ip, attention_mask=ap)
-        nll_cho_p_b = _per_sample_nll(out_cp.logits.float(), lp)
-        out_rp = model(input_ids=in_, attention_mask=an)
-        nll_rej_p_b = _per_sample_nll(out_rp.logits.float(), ln)
-        # PULL (cho toward labels): raw mean — CE pull is bounded and self-
-        # limits as nll→0, so it needs no cap; full gradient lets the
-        # off-policy cho (far, nll~3) DRIVE the behaviour change instead of
-        # being throttled to 1/nll (task 101/20: capping both inverted the
-        # dominance — on-policy rej-pull learned from step 1, cho-pull stuck).
-        # PUSH (rej away from labels): keep the 1/nll cap — maximizing nll is
-        # the unbounded ∇(-log p)∝1/p runaway _normed_mean was built to tame.
-        L_pos_nll = C * (nll_cho_p_b.mean() - _normed_mean(nll_rej_p_b))
-        mean_nll_p = nll_cho_p_b.mean().detach().item()
-        if use_kl:
-            kl_p = _kl_topk_base(out_cp.logits, base_top_logp_p, base_top_idx_p, lp)
-            L_pos_kl = kl_lambda * kl_p
-    g_pos_nll = _zerofill(torch.autograd.grad(
-        L_pos_nll, params, retain_graph=use_kl, allow_unused=True), params)
+    def completion_terms(c, ids, labels, attn, base_logp, base_idx):
+        # Replay inside the signed context; retain no full-vocab graphs. -- PI/OpenAI
+        with lora(model, c=c):
+            logits = model(input_ids=ids, attention_mask=attn).logits
+            nll = _per_sample_nll(logits.float(), labels)
+            kl = _kl_topk_base(logits, base_logp, base_idx, labels) if base_logp is not None else zero
+            return nll, kl
+
+    nll_cho_p_b, kl_p = checkpoint(
+        completion_terms, +C, ip, lp, ap, base_top_logp_p, base_top_idx_p,
+        use_reentrant=False)
+    nll_rej_p_b, _ = checkpoint(
+        completion_terms, +C, in_, ln, an, None, None, use_reentrant=False)
+    nll_rej_n_b, kl_n = checkpoint(
+        completion_terms, -C, in_, ln, an, base_top_logp_n, base_top_idx_n,
+        use_reentrant=False)
+    nll_cho_n_b, _ = checkpoint(
+        completion_terms, -C, ip, lp, ap, None, None, use_reentrant=False)
+    loss_nll = _odd_pair_loss(
+        nll_cho_p_b, nll_rej_p_b, nll_cho_n_b, nll_rej_n_b, C=C)
+    g_nll = _zerofill(torch.autograd.grad(
+        loss_nll, params, retain_graph=use_kl, allow_unused=True), params)
     if use_kl:
-        g_pos_kl = _zerofill(torch.autograd.grad(
-            L_pos_kl, params, retain_graph=False, allow_unused=True), params)
+        g_kl = _zerofill(torch.autograd.grad(
+            0.5 * kl_lambda * (kl_p + kl_n), params, allow_unused=True), params)
     else:
-        g_pos_kl = [torch.zeros_like(p) for p in params]
-        kl_p = zero
-
-    # ---- both inputs at c=-C  (rej prefer, cho penalize) ------------------
-    with lora(model, c=-C):
-        out_rn = model(input_ids=in_, attention_mask=an)
-        nll_rej_n_b = _per_sample_nll(out_rn.logits.float(), ln)
-        out_cn = model(input_ids=ip, attention_mask=ap)
-        nll_cho_n_b = _per_sample_nll(out_cn.logits.float(), lp)
-        # PULL (rej toward labels) raw; PUSH (cho away) capped — see L_pos.
-        L_neg_nll = C * (nll_rej_n_b.mean() - _normed_mean(nll_cho_n_b))
-        mean_nll_n = nll_rej_n_b.mean().detach().item()
-        if use_kl:
-            kl_n = _kl_topk_base(out_rn.logits, base_top_logp_n, base_top_idx_n, ln)
-            L_neg_kl = kl_lambda * kl_n
-    g_neg_nll = _zerofill(torch.autograd.grad(
-        L_neg_nll, params, retain_graph=use_kl, allow_unused=True), params)
-    if use_kl:
-        g_neg_kl = _zerofill(torch.autograd.grad(
-            L_neg_kl, params, retain_graph=False, allow_unused=True), params)
-    else:
-        g_neg_kl = [torch.zeros_like(p) for p in params]
-        kl_n = zero
-
-    # ---- PCGrad on the NLL pair --------------------------------------------
-    # Within-side asymmetry handled at the loss via _normed_mean (above);
-    # nothing extra at the grad level here.
-    gp_flat = torch.cat([g.reshape(-1) for g in g_pos_nll])
-    gn_flat = torch.cat([g.reshape(-1) for g in g_neg_nll])
-    dot = (gp_flat * gn_flat).sum()
-    gp_norm_sq = (gp_flat * gp_flat).sum().clamp_min(1e-12)
-    gn_norm_sq = (gn_flat * gn_flat).sum().clamp_min(1e-12)
-    cos = (dot / (gp_norm_sq.sqrt() * gn_norm_sq.sqrt())).item()
-    conflict = dot.item() < 0
-
-    if pcgrad and conflict:
-        gp_proj = gp_flat - (dot / gn_norm_sq) * gn_flat
-        gn_proj = gn_flat - (dot / gp_norm_sq) * gp_flat
-        nll_summed = 0.5 * (gp_proj + gn_proj)
-    else:
-        nll_summed = 0.5 * (gp_flat + gn_flat)
-
-    if use_kl:
-        kl_flat = 0.5 * (
-            torch.cat([g.reshape(-1) for g in g_pos_kl]) +
-            torch.cat([g.reshape(-1) for g in g_neg_kl])
-        )
-        summed = nll_summed + kl_flat
-        g_kl_norm = float(kl_flat.norm())
-    else:
-        summed = nll_summed
-        g_kl_norm = 0.0
-    g_nll_norm = float(nll_summed.norm())
-
-    offset = 0
-    for p in params:
-        n = p.numel()
-        p.grad = summed[offset:offset + n].view_as(p)
-        offset += n
+        g_kl = [torch.zeros_like(p) for p in params]
+        kl_p = kl_n = zero
+    nll_flat = torch.cat([g.reshape(-1) for g in g_nll]).float()
+    kl_flat = torch.cat([g.reshape(-1) for g in g_kl]).float()
+    cos = torch.nn.functional.cosine_similarity(nll_flat, kl_flat, dim=0).item()
+    for p, gn, gk in zip(params, g_nll, g_kl):
+        p.grad = gn + gk
 
     return {
-        "L_pos_nll": mean_nll_p,           # raw mean NLL (not normalized) for interpretability
-        "L_neg_nll": mean_nll_n,
-        "kl_mean_pos": kl_p.detach().item() if use_kl else 0.0,
-        "kl_mean_neg": kl_n.detach().item() if use_kl else 0.0,
-        "g_nll_norm": g_nll_norm,          # ‖summed NLL gradient‖ (post-PCGrad, pre-clip)
-        "g_kl_norm": g_kl_norm,            # ‖summed KL gradient‖   (post-PCGrad, pre-clip)
+        "loss_nll": loss_nll.detach().item(),
+        "nll_cho_pos": nll_cho_p_b.detach().mean().item(),
+        "nll_rej_pos": nll_rej_p_b.detach().mean().item(),
+        "nll_cho_neg": nll_cho_n_b.detach().mean().item(),
+        "nll_rej_neg": nll_rej_n_b.detach().mean().item(),
+        "kl_mean_pos": kl_p.detach().item(),
+        "kl_mean_neg": kl_n.detach().item(),
+        "g_nll_norm": float(nll_flat.norm()),
+        "g_kl_norm": float(kl_flat.norm()),
         "C": C,
-        "conflict": conflict,
         "cos": cos,
     }
 
@@ -503,7 +395,7 @@ def _capture_calibration_activations(model, tok, pairs: list[dict],
 def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
                   *, history_bake=None, enable_thinking: bool = False,
                   adapter_cls: type = ModulatedLoRA):
-    """Fit one ModulatedLoRA / ModulatedPiSSA on `pairs` via path-loss + KL anchor.
+    """Fit one ModulatedLoRA / ModulatedPiSSA via coupled preference loss + KL. -- PI/OpenAI
 
     `history_bake`: if given, its gate is set to `lambda: lora._c != 0.0` so
     the c=0 reference returns pristine base (LoRA) or post-prior-bakes
@@ -592,9 +484,9 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
         # the bake point in-distribution. Pinning concentrates the signal at the
         # one strength we deploy. KL anchor still handles "be quiet at low c".
         C = 1.0
-        trace = pcgrad_train_step(
+        trace = train_step(
             model, lora, ip, lp, ap, in_, ln, an, params,
-            C=C, pcgrad=cfg.pcgrad, kl_lambda=cfg.kl_lambda,
+            C=C, kl_lambda=cfg.kl_lambda,
         )
 
         gn_pre = float(torch.nn.utils.clip_grad_norm_(params, cfg.grad_clip))
@@ -609,8 +501,11 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
         traces.append({
             "step": step,
             "C": trace["C"],
-            "nll+": trace["L_pos_nll"],
-            "nll-": trace["L_neg_nll"],
+            "loss": trace["loss_nll"],
+            "cho+": trace["nll_cho_pos"],
+            "rej+": trace["nll_rej_pos"],
+            "cho-": trace["nll_cho_neg"],
+            "rej-": trace["nll_rej_neg"],
             "kl+": trace["kl_mean_pos"],
             "kl-": trace["kl_mean_neg"],
             "cos": trace["cos"],
@@ -619,15 +514,14 @@ def train_adapter(model, tok, pairs: list[dict], cfg: TrainCfg,
             "‖g_kl‖": trace["g_kl_norm"],
             "‖g‖": gn_pre,
             "lr": lr,
-            "conf": int(trace["conflict"]),
         })
 
         if val_pairs and (step % _VAL_EVERY == 0 or step == cfg.steps - 1):
             v_cho, v_rej = _val_nll(model, lora, val_pairs, tok, cfg.max_len,
                                     C=C, enable_thinking=enable_thinking)
             val_traces.append({"step": step,
-                               "train_nll+": trace["L_pos_nll"], "val_nll+": v_cho,
-                               "train_nll-": trace["L_neg_nll"], "val_nll-": v_rej})
+                               "train_nll+": trace["nll_cho_pos"], "val_nll+": v_cho,
+                               "train_nll-": trace["nll_rej_neg"], "val_nll-": v_rej})
             if v_cho < best_val_pos and step >= warmup_steps:
                 best_val_pos = v_cho
                 best_state = [p.detach().clone() for p in params]
@@ -712,66 +606,18 @@ def _log_val_table(val_traces: list[dict]) -> None:
 
 
 def _log_train_table(traces: list[dict]) -> None:
-    """Print the per-step trace as a tabulate plain table.
-
-    SHOULD show: C fixed at 1.0, nll± stable (large jumps = adapter
-    blowing up), kl± rise through warmup then fall WITH nll± (see caption),
-    cos near 0 (orthogonal gradients = PCGrad-friendly), lr cosine from
-    0 → peak → 0, conf flag when PCGrad surgery fired."""
+    """Report the preference loss, four NLLs, and KL at both signs. -- PI/OpenAI"""
     from tabulate import tabulate
-    # Arrows in headers: ↓ = lower is better, →0 = converge to zero, no arrow
-    # = no fixed direction (varies with C, schedule, or is diagnostic-only).
-    keys    = ["step", "C", "nll+",   "nll-",   "kl+",   "kl-",   "cos",   "‖Δs‖", "‖g_nll‖", "‖g_kl‖", "‖g‖", "lr", "conf"]
-    headers = ["step", "C", "nll+ ↓", "nll- ↓", "kl+ ↓", "kl- ↓", "cos →0", "‖Δs‖", "‖g_nll‖", "‖g_kl‖", "‖g‖", "lr", "conf"]
-    rows = [[t[k] for k in keys] for t in traces]
-    # SHOULD (margin loss + PUSH-only cap + PiSSA): nll+ AND nll- both descend
-    # — nll+ is nll(cho|+C), nll- is nll(rej|-C), both are PULL-toward-labels
-    # under their own C-sign frame and now BOTH run at raw (uncapped) gradient,
-    # so both should fall as the adapter opens the margin. nll+ is the
-    # off-policy cho-pull (the behaviour change); under the old symmetric cap
-    # it was throttled ×1/nll and stayed stuck ~3 while nll- descended from
-    # step 1 (task 20). The push-only cap is meant to UNSTICK nll+: if nll+ is
-    # still flat across all steps while nll- descends, the cap removal didn't
-    # take or the cho target is unreachable at this lr. ‖Δs‖ growing (adapter
-    # actually learning, not frozen by bf16 underflow / weight decay); cos
-    # drifting →0 (g_nll and g_kl orthogonalise as the adapter finds a
-    # direction that satisfies the margin without fighting the KL anchor —
-    # cos staying near ±1 means the two losses are colinear, the adapter
-    # is being pulled into a single tug-of-war axis); kl± RISE through warmup
-    # then FALL together with nll± (the target shape — see caption); lr
-    # cosine-anneals; conf=0 (no PCGrad
-    # surgery needed). ‖g_nll‖ and
-    # ‖g_kl‖ broken out so we can tell which side
-    # drives a noisy ‖g‖ — if ‖g_kl‖ >> ‖g_nll‖ consistently, kl_lambda
-    # is anchoring the LoRA against the NLL signal and should drop.
-    table = tabulate(rows, headers=headers, tablefmt="plain", floatfmt=".3g")
-    caption = (
-        "  C: fixed at 1.0 — we bake at the trained strength (init_c=1.0, no "
-        "backoff), so training concentrates on the one deployment c rather than "
-        "spreading over a range to stay in-distribution at the bake point.\n"
-        "  cos: cos(g_nll, g_kl). Starts near +1 (the -C frame makes the cho/rej "
-        "NLL gradients point the same way as the KL pull-to-base); should drift "
-        "→0 as the adapter finds a direction that satisfies the margin without "
-        "fighting the anchor. Stuck at ±1 = tug-of-war on one axis.\n"
-        "  kl±: SHOULD rise through warmup (adapter moves off base to open the "
-        "margin as lr climbs) then fall TOGETHER with nll± — the target shape, a "
-        "direction that holds the contrast with progressively less divergence "
-        "from base. Settling to a moderate (nonzero) plateau once nll has "
-        "bottomed LOW is also healthy (converged, bounded leak). The bad case is "
-        "kl decaying toward ZERO while nll is still HIGH (≫1) = collapsing back "
-        "to base, intervention lost — the tell is kl→0 AND high nll, not merely "
-        "kl falling. kl never rising = adapter never engaged; kl rising and "
-        "never falling = still fighting the anchor, no efficient direction.\n"
-        "  ‖g_nll‖ / ‖g_kl‖ / ‖g‖: gradient pressure from each loss term and "
-        "the combined update. ‖g_kl‖ ≳ ‖g_nll‖ late in training = kl_lambda "
-        "too high (KL is dominating the signal); drop it. Where g_nll and g_kl "
-        "first equalise marks the handover from intervention-led to anchor-"
-        "contested updates; g_kl staying ≳ g_nll past that = anchor eating the "
-        "intervention.\n"
-        "  nll+/nll-: ratio of nll(cho|+C) to nll(rej|-C). cho is the teacher's "
-        "edit (off-policy), rej the student's own seeded answer (on-policy), so "
-        "1-4x is normal; ≥10x late means cho is off-policy — the adapter is "
-        "learning to suppress the seed (easy) far more than produce the target "
-        "(hard), so the steering is lopsided toward not-that over be-this."
-    )
-    logger.info(f"\ntraining trace:\n{table}\n{caption}\n")
+    keys = ["step", "loss", "cho+", "rej+", "cho-", "rej-", "kl+", "kl-",
+            "cos", "‖Δs‖", "‖g_nll‖", "‖g_kl‖", "‖g‖", "lr", "C"]
+    headers = ["step→", "loss↓", "cho+", "rej+", "cho-", "rej-", "kl+", "kl-",
+               "cos", "‖Δs‖", "‖g_nll‖", "‖g_kl‖", "‖g‖", "lr", "C"]
+    table = tabulate([[t[k] for k in keys] for t in traces], headers=headers,
+                     tablefmt="pipe", floatfmt=".3g")
+    logger.info(
+        "\ntraining trace:\n"
+        "SHOULD: even-in-C NLL terms cancel before the sigmoid weighting.\n"
+        "cho/rej ±: mean completion NLL at each sign; the margin need not lower both NLLs.\n"
+        "kl±: top-K reverse KL to c=0 on cho/+C and rej/-C.\n"
+        "cos: cosine between preference and KL gradients, before global clipping.\n"
+        f"{table}\n")

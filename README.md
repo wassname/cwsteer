@@ -82,6 +82,11 @@ external objective: NLL over model completions. I do not yet have a good intuiti
 what that means for behaviours like sandbagging and reward hacking, where the failure
 may be a mismatch between outer logprobs and inner hidden states.
 
+My current intuition
+- It's about 2x as good, and 2x as coherent as activation steering (I [tested](https://www.lesswrong.com/posts/HYTbakdHpxfaCowYp/steering-language-models-with-weight-arithmetic?commentId=GomjgJDtr5JhEAuC3) against https://github.com/wassname/steering-lite)
+- It needs very little data, ~10-20 clean samples is fine, this is differen't than normal lora training which uses 100-3000+
+- My changed here make it more reliable and performant (but other peoples work may come out soon, it's early days), mainly by filtering data, and adding the per-update bidirectionality constraint
+
 ## Appendix: adapter sketch
 
 The plain LoRA form, per target Linear:

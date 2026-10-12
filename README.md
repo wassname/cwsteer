@@ -71,19 +71,15 @@ method. I have not added a standalone post-hoc pair filter yet.
 
 ## Relation to preference optimisation
 
-cwsteer separates the intervention (a signed weight adapter) from the preference
-loss used to train it. [GPO](https://arxiv.org/abs/2402.05749) unifies pairwise
-losses such as [DPO](https://arxiv.org/abs/2305.18290) and
-[IPO](https://arxiv.org/abs/2310.12036) through different functions of a
-reference-relative preference margin. Uncapped cwsteer and DPO both train through
-a difference of chosen/rejected log-probability gradients; DPO adjusts each pair's
-weight as its margin improves. cwsteer's mean-token NLL is closer to
-[SimPO](https://arxiv.org/abs/2405.14734)'s length-normalised score.
-[BiPO](https://arxiv.org/abs/2406.00045) already learns one signed activation vector
-with reversed preferences at the negative sign; cwsteer applies this bidirectional
-idea to weight updates. With PCGrad off, evaluating both signs averages their
-gradients each step, whereas BiPO samples a sign. These connections let us study
-loss weighting separately from the choice of activation or weight intervention.
+We can think of cwsteer as bidirectional preference optimisation: one weight
+update learns to favour cho at +c and rej at −c. This lets us compare its loss
+with [DPO](https://arxiv.org/abs/2305.18290),
+[IPO](https://arxiv.org/abs/2310.12036) and other losses described by
+[GPO](https://arxiv.org/abs/2402.05749). The contrast between replies supplies the
+learning direction; the loss determines how strongly each pair keeps
+contributing as its preference is learned. Training both signs teaches the
+update to work in either direction. [BiPO](https://arxiv.org/abs/2406.00045) does
+this with an activation vector; cwsteer uses a weight update.
 
 <!-- PI/Sol (gpt-6.1-sol), 2026-10-12. -->
 

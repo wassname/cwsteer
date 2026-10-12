@@ -69,6 +69,24 @@ The signed adapter, KL control, calibration, and pair filtering follow earlier
 [AntiPaSTO work](https://arxiv.org/pdf/2601.07473). PiSSA is a separate existing
 method. I have not added a standalone post-hoc pair filter yet.
 
+## Relation to preference optimisation
+
+cwsteer separates the intervention (a signed weight adapter) from the preference
+loss used to train it. [GPO](https://arxiv.org/abs/2402.05749) unifies pairwise
+losses such as [DPO](https://arxiv.org/abs/2305.18290) and
+[IPO](https://arxiv.org/abs/2310.12036) through different functions of a
+reference-relative preference margin. Uncapped cwsteer and DPO both train through
+a difference of chosen/rejected log-probability gradients; DPO adjusts each pair's
+weight as its margin improves. cwsteer's mean-token NLL is closer to
+[SimPO](https://arxiv.org/abs/2405.14734)'s length-normalised score.
+[BiPO](https://arxiv.org/abs/2406.00045) already learns one signed activation vector
+with reversed preferences at the negative sign; cwsteer applies this bidirectional
+idea to weight updates. With PCGrad off, evaluating both signs averages their
+gradients each step, whereas BiPO samples a sign. These connections let us study
+loss weighting separately from the choice of activation or weight intervention.
+
+<!-- PI/Sol (gpt-6.1-sol), 2026-10-12. -->
+
 ## Why weight steering
 
 Steering is interesting because it can use contrastive prompts instead of reward
